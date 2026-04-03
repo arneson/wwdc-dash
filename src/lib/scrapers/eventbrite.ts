@@ -1,13 +1,19 @@
 import { WWDCEvent, EventTag } from "../types";
 
-interface EventbriteEvent {
-  id: string;
-  name: { text: string };
-  description?: { text: string };
-  start: { utc: string; local: string };
-  end?: { utc: string; local: string };
+// Internal Eventbrite destination API response shape
+interface EBDestinationEvent {
+  eventbrite_event_id: string;
+  name: string;
+  summary?: string;
   url: string;
-  venue?: {
+  start_date: string; // "2025-06-09"
+  start_time: string; // "17:00"
+  end_date?: string;
+  end_time?: string;
+  timezone?: string;
+  image?: { original?: { url?: string } };
+  primary_organizer?: { name?: string; url?: string };
+  primary_venue?: {
     name?: string;
     address?: {
       localized_address_display?: string;
@@ -15,11 +21,11 @@ interface EventbriteEvent {
       region?: string;
     };
   };
-  organizer?: { name?: string };
-  is_free?: boolean;
-  logo?: { url?: string };
-  capacity?: number;
-  online_event?: boolean;
+  ticket_availability?: {
+    minimum_ticket_price?: { display?: string };
+    is_free?: boolean;
+  };
+  tags?: { display_name?: string }[];
 }
 
 const TAG_KEYWORDS: Record<EventTag, string[]> = {
@@ -48,62 +54,62 @@ function autoTag(title: string, description: string): EventTag[] {
   return tags.length > 0 ? tags : ["meetup"];
 }
 
-function eventbriteToEvent(eb: EventbriteEvent): WWDCEvent {
-  const startDate = new Date(eb.start.utc);
-  const endDate = eb.end ? new Date(eb.end.utc) : undefined;
-  const description = eb.description?.text || "";
+function ebDestToEvent(eb: EBDestinationEvent): WWDCEvent {
+  const description = eb.summary || "";
   const location =
-    eb.venue?.address?.localized_address_display ||
-    eb.venue?.name ||
+    eb.primary_venue?.address?.localized_address_display ||
+    eb.primary_venue?.name ||
     "San Francisco, CA";
 
+  const cost = eb.ticket_availability?.is_free
+    ? "Free"
+    : eb.ticket_availability?.minimum_ticket_price?.display || "Paid";
+
   return {
-    id: `eb-${eb.id}`,
-    title: eb.name.text,
+    id: `eb-${eb.eventbrite_event_id}`,
+    title: eb.name,
     description: description.slice(0, 500),
     source: "eventbrite",
     sourceUrl: eb.url,
-    date: startDate.toISOString().split("T")[0],
-    time: startDate.toTimeString().slice(0, 5),
-    endTime: endDate ? endDate.toTimeString().slice(0, 5) : undefined,
+    date: eb.start_date,
+    time: eb.start_time || "00:00",
+    endTime: eb.end_time || undefined,
     location,
-    host: eb.organizer?.name || "Unknown",
-    tags: autoTag(eb.name.text, description),
+    host: eb.primary_organizer?.name || "Unknown",
+    tags: autoTag(eb.name, description),
     interestLevel: "interested",
     rsvpStatus: "none",
     inviteOnly: false,
-    cost: eb.is_free ? "Free" : "Paid",
-    attendeeCount: eb.capacity,
+    cost,
     notes: "",
     addedAt: new Date().toISOString(),
-    imageUrl: eb.logo?.url,
+    imageUrl: eb.image?.original?.url,
   };
 }
+
+// SF Google Places ID
+const SF_PLACE_ID = "ChIJIQBpABoR2YAR2oxhU2yN3Qo";
 
 export async function searchEventbrite(
   query: string
 ): Promise<WWDCEvent[]> {
-  const token = process.env.EVENTBRITE_TOKEN;
-  if (!token) {
-    console.log("Eventbrite: No EVENTBRITE_TOKEN set, skipping API search");
-    return [];
-  }
-
   try {
     const params = new URLSearchParams({
-      "q": query,
-      "location.address": "San Francisco",
-      "location.within": "30mi",
-      "start_date.range_start": "2025-06-07T00:00:00Z",
-      "start_date.range_end": "2025-06-15T23:59:59Z",
-      "expand": "venue,organizer",
+      "event_search.q": query,
+      "event_search.dates": "next_month",
+      place_id: SF_PLACE_ID,
+      page_size: "40",
+      expand: "primary_venue,primary_organizer,ticket_availability,image",
     });
 
     const res = await fetch(
-      `https://www.eventbriteapi.com/v3/events/search/?${params}`,
+      `https://www.eventbrite.com/api/v3/destination/events/?${params}`,
       {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          Referer: "https://www.eventbrite.com/",
         },
       }
     );
@@ -114,11 +120,14 @@ export async function searchEventbrite(
     }
 
     const data = await res.json();
-    const events: EventbriteEvent[] = data.events || [];
+    const events: EBDestinationEvent[] = data.events || [];
 
     return events
-      .filter((e) => !e.online_event)
-      .map(eventbriteToEvent);
+      .map(ebDestToEvent)
+      .filter((e) => {
+        // Filter to WWDC week ± a few days
+        return e.date >= "2025-06-07" && e.date <= "2025-06-15";
+      });
   } catch (err) {
     console.error("Eventbrite scraper error:", err);
     return [];

@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     for (const term of lumaConfig.searchTerms) {
       try {
         const events = await searchLuma(term);
-        const { added, duplicates } = appendEventsToDisk(events);
+        const { added } = appendEventsToDisk(events);
         const entry = {
           timestamp: new Date().toISOString(),
           source: "luma",
@@ -59,9 +59,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Run Eventbrite searches (only if token is set)
+  // Run Eventbrite searches (uses internal API, no token needed)
   const ebConfig = DEFAULT_SCAN_CONFIGS.find((c) => c.source === "eventbrite");
-  if (ebConfig?.enabled && process.env.EVENTBRITE_TOKEN) {
+  if (ebConfig?.enabled) {
     for (const term of ebConfig.searchTerms) {
       try {
         const events = await searchEventbrite(term);

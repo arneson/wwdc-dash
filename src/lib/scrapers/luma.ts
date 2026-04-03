@@ -6,11 +6,14 @@ interface LumaEntry {
     api_id: string;
     name: string;
     description?: string;
+    description_md?: string;
     description_mirror?: string;
     start_at: string;
     end_at?: string;
     geo_address_info?: {
       city_state?: string;
+      city?: string;
+      region?: string;
       address?: string;
       full_address?: string;
       place_id?: string;
@@ -26,6 +29,16 @@ interface LumaEntry {
     name?: string;
     api_id?: string;
   };
+  hosts?: {
+    name?: string;
+    twitter_handle?: string;
+  }[];
+  ticket_info?: {
+    is_free?: boolean;
+    is_sold_out?: boolean;
+    spots_remaining?: number;
+  };
+  guest_count?: number;
   guests_count?: number;
 }
 
@@ -92,13 +105,16 @@ function lumaEntryToEvent(entry: LumaEntry): WWDCEvent {
     endTime: endDate ? endDate.toTimeString().slice(0, 5) : undefined,
     location: address,
     neighborhood: extractNeighborhood(address),
-    host: entry.calendar?.name || "Unknown",
+    host:
+      entry.hosts?.[0]?.name ||
+      entry.calendar?.name ||
+      "Unknown",
     tags: autoTag(e.name, description),
     interestLevel: "interested",
     rsvpStatus: "none",
     inviteOnly: e.visibility === "private",
-    cost: "Free",
-    attendeeCount: entry.guests_count,
+    cost: entry.ticket_info?.is_free === false ? "Paid" : "Free",
+    attendeeCount: entry.guest_count || entry.guests_count,
     notes: "",
     addedAt: new Date().toISOString(),
     imageUrl: e.cover_url,
@@ -106,36 +122,60 @@ function lumaEntryToEvent(entry: LumaEntry): WWDCEvent {
 }
 
 export async function searchLuma(query: string): Promise<WWDCEvent[]> {
-  try {
-    const res = await fetch("https://api.lu.ma/discover/get-paginated-events", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-luma-client-type": "web",
-      },
-      body: JSON.stringify({
-        pagination_limit: 20,
-        geo_latitude: 37.7749,
-        geo_longitude: -122.4194,
-        geo_radius: "50mi",
-        search_query: query,
-      }),
-    });
+  const allEvents: WWDCEvent[] = [];
+  let cursor: string | undefined;
 
-    if (!res.ok) {
-      console.error(`Luma API error: ${res.status} ${res.statusText}`);
-      return [];
+  try {
+    // Paginate through results (max 3 pages to be polite)
+    for (let page = 0; page < 3; page++) {
+      const params = new URLSearchParams({
+        pagination_limit: "50",
+        query,
+        period: "future",
+        geo_latitude: "37.7749",
+        geo_longitude: "-122.4194",
+        geo_radius: "200",
+      });
+      if (cursor) {
+        params.set("pagination_cursor", cursor);
+      }
+
+      const res = await fetch(
+        `https://api.lu.ma/discover/get-paginated-events?${params}`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            Referer: "https://lu.ma/",
+            Origin: "https://lu.ma",
+          },
+        }
+      );
+
+      if (!res.ok) {
+        console.error(`Luma API error: ${res.status} ${res.statusText}`);
+        break;
+      }
+
+      const data = await res.json();
+      const entries: LumaEntry[] = data.entries || [];
+
+      const events = entries.map(lumaEntryToEvent).filter((e) => {
+        // Filter to WWDC week ± a few days
+        return e.date >= "2025-06-07" && e.date <= "2025-06-15";
+      });
+
+      allEvents.push(...events);
+
+      if (!data.has_more || !data.next_cursor) break;
+      cursor = data.next_cursor;
     }
 
-    const data = await res.json();
-    const entries: LumaEntry[] = data.entries || [];
-
-    return entries.map(lumaEntryToEvent).filter((e) => {
-      // Filter to WWDC week ± a few days
-      return e.date >= "2025-06-07" && e.date <= "2025-06-15";
-    });
+    return allEvents;
   } catch (err) {
     console.error("Luma scraper error:", err);
-    return [];
+    return allEvents;
   }
 }
