@@ -59,3 +59,57 @@ export function saveScanConfigs(configs: ScanConfig[]) {
 export function setInterestLevel(id: string, level: InterestLevel) {
   return updateEvent(id, { interestLevel: level });
 }
+
+export function mergeScannedEvents(newEvents: WWDCEvent[]): {
+  added: WWDCEvent[];
+  duplicates: number;
+} {
+  const existing = getEvents();
+  const existingKeys = new Set(
+    existing.map((e) => e.sourceUrl || e.title.toLowerCase().trim())
+  );
+
+  const added: WWDCEvent[] = [];
+  let duplicates = 0;
+
+  for (const event of newEvents) {
+    const key = event.sourceUrl || event.title.toLowerCase().trim();
+    if (existingKeys.has(key)) {
+      duplicates++;
+      continue;
+    }
+    added.push(event);
+    existingKeys.add(key);
+  }
+
+  if (added.length > 0) {
+    saveEvents([...existing, ...added]);
+  }
+
+  return { added, duplicates };
+}
+
+const SCAN_LOG_KEY = "wwdc-dash-scan-log";
+
+export interface ScanLogEntry {
+  timestamp: string;
+  source: string;
+  term: string;
+  found: number;
+  added: number;
+  error?: string;
+}
+
+export function getScanLog(): ScanLogEntry[] {
+  if (typeof window === "undefined") return [];
+  const stored = localStorage.getItem(SCAN_LOG_KEY);
+  return stored ? JSON.parse(stored) : [];
+}
+
+export function appendScanLog(entries: ScanLogEntry[]) {
+  const log = getScanLog();
+  log.push(...entries);
+  // Keep last 100
+  const trimmed = log.slice(-100);
+  localStorage.setItem(SCAN_LOG_KEY, JSON.stringify(trimmed));
+}

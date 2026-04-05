@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   WWDCEvent,
   EventSource,
@@ -9,7 +9,16 @@ import {
   SOURCE_CONFIG,
   ScanConfig,
 } from "@/lib/types";
-import { getScanConfigs, saveScanConfigs } from "@/lib/store";
+import {
+  getEvents,
+  saveEvents,
+  getScanConfigs,
+  saveScanConfigs,
+  mergeScannedEvents,
+  getScanLog,
+  appendScanLog,
+  ScanLogEntry,
+} from "@/lib/store";
 import { generateAllSearchLinks } from "@/lib/scrapers";
 import EventCard from "@/components/EventCard";
 import AddEventModal from "@/components/AddEventModal";
@@ -57,15 +66,6 @@ interface ScanResult {
   error?: string;
 }
 
-interface ScanLogEntry {
-  timestamp: string;
-  source: string;
-  term: string;
-  found: number;
-  added: number;
-  error?: string;
-}
-
 export default function Dashboard() {
   const [events, setEvents] = useState<WWDCEvent[]>([]);
   const [configs, setConfigs] = useState<ScanConfig[]>([]);
@@ -90,124 +90,138 @@ export default function Dashboard() {
   // Timeline
   const [selectedDate, setSelectedDate] = useState(WWDC_DATES[0]);
 
-  // Track event count for new event detection
-  const prevEventCountRef = useRef(0);
-
-  // Fetch events from server API
-  const fetchEvents = useCallback(async () => {
-    try {
-      const res = await fetch("/api/events");
-      const data = await res.json();
-      const serverEvents: WWDCEvent[] = data.events || [];
-
-      if (prevEventCountRef.current > 0 && serverEvents.length > prevEventCountRef.current) {
-        setNewEventsBanner(serverEvents.length - prevEventCountRef.current);
-        setTimeout(() => setNewEventsBanner(0), 8000);
-      }
-      prevEventCountRef.current = serverEvents.length;
-
-      setEvents(serverEvents);
-    } catch {
-      // Fallback: if server API fails, events stay as-is
-    }
-  }, []);
-
-  // Fetch scan log
-  const fetchScanLog = useCallback(async () => {
-    try {
-      const res = await fetch("/api/scan");
-      const data = await res.json();
-      setScanLog(data.log || []);
-    } catch {
-      // ignore
-    }
-  }, []);
-
   useEffect(() => {
+    setEvents(getEvents());
     setConfigs(getScanConfigs());
-    fetchEvents();
-    fetchScanLog();
+    setScanLog(getScanLog());
     setMounted(true);
+  }, []);
 
-    // Poll for new events every 60s
-    const interval = setInterval(fetchEvents, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchEvents, fetchScanLog]);
-
-  // Trigger a scan manually
+  // Trigger a scan — calls the API, merges results into localStorage
   const triggerScan = useCallback(async () => {
     setScanning(true);
     setLastScanResults(null);
     try {
       const res = await fetch("/api/scan", { method: "POST" });
       const data = await res.json();
-      setLastScanResults(data.results || []);
-      // Refresh events after scan
-      await fetchEvents();
-      await fetchScanLog();
+
+      if (!data.success) {
+        setLastScanResults([{
+          source: "error",
+          term: "",
+          found: 0,
+          added: 0,
+          error: data.error || "Scan failed",
+        }]);
+        return;
+      }
+
+      // Merge scraped events into localStorage
+      const scrapedEvents: WWDCEvent[] = data.events || [];
+      const { added } = mergeScannedEvents(scrapedEvents);
+
+      // Build results with added counts
+      const results: ScanResult[] = (data.results || []).map(
+        (r: { source: string; term: string; found: number; error?: string }) => ({
+          ...r,
+          added: 0, // we'll show total below
+        })
+      );
+
+      // Add summary entry
+      if (added.length > 0) {
+        results.push({
+          source: "total",
+          term: "",
+          found: scrapedEvents.length,
+          added: added.length,
+        });
+        setNewEventsBanner(added.length);
+        setTimeout(() => setNewEventsBanner(0), 8000);
+      }
+
+      setLastScanResults(results);
+
+      // Log the scan
+      const logEntries: ScanLogEntry[] = (data.results || []).map(
+        (r: { source: string; term: string; found: number; error?: string }) => ({
+          timestamp: new Date().toISOString(),
+          source: r.source,
+          term: r.term,
+          found: r.found,
+          added: 0,
+          error: r.error,
+        })
+      );
+      appendScanLog(logEntries);
+      setScanLog(getScanLog());
+
+      // Refresh events from localStorage
+      setEvents(getEvents());
     } catch (err) {
-      setLastScanResults([{ source: "error", term: "", found: 0, added: 0, error: String(err) }]);
+      setLastScanResults([{
+        source: "error",
+        term: "",
+        found: 0,
+        added: 0,
+        error: String(err),
+      }]);
     } finally {
       setScanning(false);
     }
-  }, [fetchEvents, fetchScanLog]);
+  }, []);
 
-  // Server-side event updates
   const handleUpdateInterest = useCallback(
-    async (id: string, level: InterestLevel) => {
-      setEvents((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, interestLevel: level } : e))
-      );
-      await fetch("/api/events", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, updates: { interestLevel: level } }),
+    (id: string, level: InterestLevel) => {
+      setEvents((prev) => {
+        const updated = prev.map((e) =>
+          e.id === id ? { ...e, interestLevel: level } : e
+        );
+        saveEvents(updated);
+        return updated;
       });
     },
     []
   );
 
   const handleUpdateRsvp = useCallback(
-    async (id: string, status: WWDCEvent["rsvpStatus"]) => {
-      setEvents((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, rsvpStatus: status } : e))
-      );
-      await fetch("/api/events", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, updates: { rsvpStatus: status } }),
+    (id: string, status: WWDCEvent["rsvpStatus"]) => {
+      setEvents((prev) => {
+        const updated = prev.map((e) =>
+          e.id === id ? { ...e, rsvpStatus: status } : e
+        );
+        saveEvents(updated);
+        return updated;
       });
     },
     []
   );
 
-  const handleUpdateNotes = useCallback(async (id: string, notes: string) => {
-    setEvents((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, notes } : e))
-    );
-    await fetch("/api/events", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, updates: { notes } }),
+  const handleUpdateNotes = useCallback((id: string, notes: string) => {
+    setEvents((prev) => {
+      const updated = prev.map((e) =>
+        e.id === id ? { ...e, notes } : e
+      );
+      saveEvents(updated);
+      return updated;
     });
   }, []);
 
-  const handleDelete = useCallback(async (id: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== id));
-    await fetch(`/api/events?id=${id}`, { method: "DELETE" });
+  const handleDelete = useCallback((id: string) => {
+    setEvents((prev) => {
+      const updated = prev.filter((e) => e.id !== id);
+      saveEvents(updated);
+      return updated;
+    });
   }, []);
 
-  const handleAddEvent = useCallback(
-    async (event: WWDCEvent) => {
-      setEvents((prev) => [...prev, event]);
-      await fetch("/api/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event }),
-      });
-    },
-    []
-  );
+  const handleAddEvent = useCallback((event: WWDCEvent) => {
+    setEvents((prev) => {
+      const updated = [...prev, event];
+      saveEvents(updated);
+      return updated;
+    });
+  }, []);
 
   const handleSaveConfigs = useCallback((updated: ScanConfig[]) => {
     setConfigs(updated);
@@ -296,8 +310,7 @@ export default function Dashboard() {
                 WWDC Week Dashboard
               </h1>
               <p className="text-xs text-gray-500">
-                June 9–13, 2025 · San Francisco · Auto-scanning Luma
-                {process.env.NEXT_PUBLIC_EVENTBRITE_ENABLED === "true" ? " + Eventbrite" : ""}
+                June 9-13, 2025 · San Francisco · Auto-scanning Luma + Eventbrite
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -384,10 +397,12 @@ export default function Dashboard() {
                     {" — "}
                     {r.error ? (
                       <span className="text-red-600">{r.error}</span>
+                    ) : r.source === "total" ? (
+                      <span className="text-emerald-600 font-medium">
+                        {r.added} new event{r.added !== 1 ? "s" : ""} added!
+                      </span>
                     ) : (
-                      <>
-                        {r.found} found, {r.added} new
-                      </>
+                      <>{r.found} found</>
                     )}
                   </span>
                 </div>
@@ -542,7 +557,7 @@ export default function Dashboard() {
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">Auto Scanner</h2>
                   <p className="text-sm text-gray-500">
-                    Luma is scraped automatically via cron. Hit Scan Now or set up the cron below.
+                    Scrapes Luma + Eventbrite for WWDC week events in SF. Results are merged and deduplicated.
                   </p>
                 </div>
                 <button
@@ -583,9 +598,7 @@ export default function Dashboard() {
                           }}
                         />
                         <span className="text-gray-700">{entry.term}</span>
-                        <span>
-                          {entry.found} found · {entry.added} new
-                        </span>
+                        <span>{entry.found} found</span>
                         {entry.error && (
                           <span className="text-red-500">{entry.error}</span>
                         )}
@@ -594,26 +607,6 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Cron setup instructions */}
-            <div className="bg-gray-900 rounded-xl p-4 text-sm text-gray-300 font-mono">
-              <h3 className="text-white font-sans font-semibold text-sm mb-2">
-                Cron Setup (every 30 min)
-              </h3>
-              <p className="text-gray-400 font-sans text-xs mb-3">
-                Add to your crontab, or use a service like cron-job.org / Vercel Cron:
-              </p>
-              <code className="block bg-black/30 rounded-lg p-3 text-green-400 text-xs overflow-x-auto">
-                */30 * * * * curl -X POST http://localhost:3000/api/scan
-              </code>
-              <p className="text-gray-400 font-sans text-xs mt-3">
-                To protect the endpoint, set <code className="text-gray-300">CRON_SECRET</code> in{" "}
-                <code className="text-gray-300">.env.local</code> and add the header:
-              </p>
-              <code className="block bg-black/30 rounded-lg p-3 text-green-400 text-xs overflow-x-auto mt-1">
-                curl -X POST -H &quot;Authorization: Bearer YOUR_SECRET&quot; http://localhost:3000/api/scan
-              </code>
             </div>
 
             {/* Manual scan links */}
@@ -628,7 +621,7 @@ export default function Dashboard() {
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-              <strong>Pro tip:</strong> Luma is auto-scraped. X and Partiful
+              <strong>Pro tip:</strong> Luma + Eventbrite are auto-scraped. X and Partiful
               are manual — check X replies for invite-only events, the real
               events are often in the replies.
             </div>

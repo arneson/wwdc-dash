@@ -1,31 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { searchLuma, searchEventbrite } from "@/lib/scrapers/index";
-import {
-  appendEventsToDisk,
-  appendScanLog,
-  readScanLog,
-} from "@/lib/server-store";
+import { NextResponse } from "next/server";
+import { searchLuma } from "@/lib/scrapers/luma";
+import { searchEventbrite } from "@/lib/scrapers/eventbrite";
 import { DEFAULT_SCAN_CONFIGS } from "@/lib/types";
+import { WWDCEvent } from "@/lib/types";
 
-// Protect the cron with a secret (optional but recommended)
-function isAuthorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // no secret configured = open
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${secret}`;
-}
-
-export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function POST() {
   const results: {
     source: string;
     term: string;
     found: number;
-    added: number;
     error?: string;
+    events: WWDCEvent[];
   }[] = [];
 
   // Run Luma searches
@@ -34,78 +19,72 @@ export async function POST(req: NextRequest) {
     for (const term of lumaConfig.searchTerms) {
       try {
         const events = await searchLuma(term);
-        const { added } = appendEventsToDisk(events);
-        const entry = {
-          timestamp: new Date().toISOString(),
+        results.push({
           source: "luma",
           term,
           found: events.length,
-          added: added.length,
-        };
-        appendScanLog(entry);
-        results.push(entry);
+          events,
+        });
       } catch (err) {
-        const entry = {
-          timestamp: new Date().toISOString(),
+        results.push({
           source: "luma",
           term,
           found: 0,
-          added: 0,
           error: String(err),
-        };
-        appendScanLog(entry);
-        results.push(entry);
+          events: [],
+        });
       }
     }
   }
 
-  // Run Eventbrite searches (uses internal API, no token needed)
+  // Run Eventbrite searches
   const ebConfig = DEFAULT_SCAN_CONFIGS.find((c) => c.source === "eventbrite");
   if (ebConfig?.enabled) {
     for (const term of ebConfig.searchTerms) {
       try {
         const events = await searchEventbrite(term);
-        const { added } = appendEventsToDisk(events);
-        const entry = {
-          timestamp: new Date().toISOString(),
+        results.push({
           source: "eventbrite",
           term,
           found: events.length,
-          added: added.length,
-        };
-        appendScanLog(entry);
-        results.push(entry);
+          events,
+        });
       } catch (err) {
-        const entry = {
-          timestamp: new Date().toISOString(),
+        results.push({
           source: "eventbrite",
           term,
           found: 0,
-          added: 0,
           error: String(err),
-        };
-        appendScanLog(entry);
-        results.push(entry);
+          events: [],
+        });
+      }
+    }
+  }
+
+  // Deduplicate across all results by sourceUrl and title
+  const seenKeys = new Set<string>();
+  const allEvents: WWDCEvent[] = [];
+
+  for (const r of results) {
+    for (const event of r.events) {
+      const key = event.sourceUrl || event.title.toLowerCase().trim();
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        allEvents.push(event);
       }
     }
   }
 
   const totalFound = results.reduce((s, r) => s + r.found, 0);
-  const totalAdded = results.reduce((s, r) => s + r.added, 0);
 
   return NextResponse.json({
     success: true,
-    summary: { totalFound, totalAdded, searches: results.length },
-    results,
+    summary: {
+      totalFound,
+      uniqueEvents: allEvents.length,
+      searches: results.length,
+    },
+    results: results.map(({ events, ...rest }) => rest),
+    events: allEvents,
   });
-}
-
-// GET returns the scan log
-export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const log = readScanLog();
-  return NextResponse.json({ log });
 }
