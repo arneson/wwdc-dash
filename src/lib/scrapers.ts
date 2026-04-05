@@ -32,7 +32,7 @@ export function generatePartifulSearchLinks(terms: string[]): SearchLink[] {
   return terms.map((term) => ({
     source: "partiful",
     term,
-    url: `https://www.google.com/search?q=site:partiful.com+${encodeURIComponent(term)}+san+francisco+june+2025`,
+    url: `https://www.google.com/search?q=site:partiful.com+${encodeURIComponent(term)}+san+francisco+june+2026`,
   }));
 }
 

@@ -41,19 +41,19 @@ import {
 } from "lucide-react";
 
 const WWDC_DATES = [
-  "2025-06-09",
-  "2025-06-10",
-  "2025-06-11",
-  "2025-06-12",
-  "2025-06-13",
+  "2026-06-08",
+  "2026-06-09",
+  "2026-06-10",
+  "2026-06-11",
+  "2026-06-12",
 ];
 
 const DAY_LABELS: Record<string, string> = {
-  "2025-06-09": "Mon 9",
-  "2025-06-10": "Tue 10",
-  "2025-06-11": "Wed 11",
-  "2025-06-12": "Thu 12",
-  "2025-06-13": "Fri 13",
+  "2026-06-08": "Mon 8",
+  "2026-06-09": "Tue 9",
+  "2026-06-10": "Wed 10",
+  "2026-06-11": "Thu 11",
+  "2026-06-12": "Fri 12",
 };
 
 type Tab = "events" | "timeline" | "scan" | "config";
@@ -310,7 +310,7 @@ export default function Dashboard() {
                 WWDC Week Dashboard
               </h1>
               <p className="text-xs text-gray-500">
-                June 9-13, 2025 · San Francisco · Auto-scanning Luma + Eventbrite
+                June 8-12, 2026 · San Francisco · Auto-scanning Luma + Eventbrite
               </p>
             </div>
             <div className="flex items-center gap-2">

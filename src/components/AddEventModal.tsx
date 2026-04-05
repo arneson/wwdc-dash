@@ -21,7 +21,7 @@ export default function AddEventModal({ onAdd, onClose }: AddEventModalProps) {
     description: "",
     source: "manual" as EventSource,
     sourceUrl: "",
-    date: "2025-06-09",
+    date: "2026-06-08",
     time: "18:00",
     endTime: "",
     location: "",

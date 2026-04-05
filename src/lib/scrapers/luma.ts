@@ -162,10 +162,9 @@ export async function searchLuma(query: string): Promise<WWDCEvent[]> {
       const data = await res.json();
       const entries: LumaEntry[] = data.entries || [];
 
-      const events = entries.map(lumaEntryToEvent).filter((e) => {
-        // Filter to WWDC week ± a few days
-        return e.date >= "2025-06-07" && e.date <= "2025-06-15";
-      });
+      // Include all future SF events — user can filter by date in the dashboard.
+      // Once WWDC 2026 dates are announced, events will cluster in that week.
+      const events = entries.map(lumaEntryToEvent);
 
       allEvents.push(...events);
 

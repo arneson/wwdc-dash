@@ -96,7 +96,7 @@ export async function searchEventbrite(
   try {
     const params = new URLSearchParams({
       "event_search.q": query,
-      "event_search.dates": "next_month",
+      "event_search.dates": "current_future",
       place_id: SF_PLACE_ID,
       page_size: "40",
       expand: "primary_venue,primary_organizer,ticket_availability,image",
@@ -124,10 +124,8 @@ export async function searchEventbrite(
 
     return events
       .map(ebDestToEvent)
-      .filter((e) => {
-        // Filter to WWDC week ± a few days
-        return e.date >= "2025-06-07" && e.date <= "2025-06-15";
-      });
+      // Include all SF events — user can filter by date in dashboard
+      ;
   } catch (err) {
     console.error("Eventbrite scraper error:", err);
     return [];
