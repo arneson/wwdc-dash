@@ -124,8 +124,7 @@ export async function searchEventbrite(
 
     return events
       .map(ebDestToEvent)
-      // Include all SF events — user can filter by date in dashboard
-      ;
+      .filter((e) => e.date >= "2026-06-04" && e.date <= "2026-06-14");
   } catch (err) {
     console.error("Eventbrite scraper error:", err);
     return [];
