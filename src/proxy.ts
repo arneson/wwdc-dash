@@ -5,21 +5,32 @@ const COOKIE_NAME = "wwdc-dash-auth";
 // 30 days
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
-export function proxy(request: NextRequest) {
+// Hash the key so the raw secret is never stored in the cookie
+async function hashKey(key: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(key + ":wwdc-dash-salt");
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function proxy(request: NextRequest) {
   const siteKey = process.env.SITE_KEY;
 
-  // If no SITE_KEY is configured, skip auth entirely
+  // If no SITE_KEY is configured, skip auth entirely (local dev)
   if (!siteKey) {
     return NextResponse.next();
   }
 
+  const keyHash = await hashKey(siteKey);
+
   // Check for ?key= query param (first visit link)
   const keyParam = request.nextUrl.searchParams.get("key");
   if (keyParam === siteKey) {
-    // Valid key — set cookie and redirect to clean URL
+    // Valid key — set hashed cookie and redirect to clean URL
     const cleanUrl = new URL(request.nextUrl.pathname, request.url);
     const response = NextResponse.redirect(cleanUrl);
-    response.cookies.set(COOKIE_NAME, siteKey, {
+    response.cookies.set(COOKIE_NAME, keyHash, {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
@@ -29,13 +40,21 @@ export function proxy(request: NextRequest) {
     return response;
   }
 
-  // Check for auth cookie
+  // Check for auth cookie (compare against hash)
   const authCookie = request.cookies.get(COOKIE_NAME);
-  if (authCookie?.value === siteKey) {
+  if (authCookie?.value === keyHash) {
     return NextResponse.next();
   }
 
-  // No valid key or cookie — block access
+  // API routes get JSON 401 (for curl/cron callers)
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  // Pages get a simple HTML 401
   return new NextResponse(
     `<!DOCTYPE html>
 <html>
