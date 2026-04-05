@@ -503,7 +503,7 @@ export default function Dashboard() {
               {filteredEvents.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <Calendar size={48} className="mx-auto mb-3 opacity-50" />
-                  <p>No events match your filters</p>
+                  <p>{events.length === 0 ? "No events yet — hit Scan Now to find events!" : "No events match your filters"}</p>
                 </div>
               ) : (
                 filteredEvents.map((event) => (
@@ -655,17 +655,6 @@ export default function Dashboard() {
                 Events are stored in your browser. Reset to start fresh with seed data, or clear to remove everything.
               </p>
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    if (confirm("Reset all events to seed data? Your edits and scanned events will be lost.")) {
-                      localStorage.removeItem("wwdc-dash-events");
-                      setEvents(getEvents());
-                    }
-                  }}
-                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                >
-                  Reset to Seed Data
-                </button>
                 <button
                   onClick={() => {
                     if (confirm("Clear ALL events? This cannot be undone.")) {

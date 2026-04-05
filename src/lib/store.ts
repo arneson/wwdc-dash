@@ -1,18 +1,14 @@
 "use client";
 
 import { WWDCEvent, ScanConfig, DEFAULT_SCAN_CONFIGS, InterestLevel } from "./types";
-import { SEED_EVENTS } from "./seed-events";
 
 const EVENTS_KEY = "wwdc-dash-events";
 const CONFIGS_KEY = "wwdc-dash-scan-configs";
 
 export function getEvents(): WWDCEvent[] {
-  if (typeof window === "undefined") return SEED_EVENTS;
+  if (typeof window === "undefined") return [];
   const stored = localStorage.getItem(EVENTS_KEY);
-  if (!stored) {
-    localStorage.setItem(EVENTS_KEY, JSON.stringify(SEED_EVENTS));
-    return SEED_EVENTS;
-  }
+  if (!stored) return [];
   return JSON.parse(stored);
 }
 
