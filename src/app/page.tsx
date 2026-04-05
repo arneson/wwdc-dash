@@ -648,6 +648,37 @@ export default function Dashboard() {
                 <p><strong>Vibe:</strong> Hack houses, demo nights, brewery meetups</p>
               </div>
             </div>
+
+            <div className="mt-6 p-4 bg-white rounded-xl border border-red-200">
+              <h3 className="font-semibold text-gray-900 mb-2">Data</h3>
+              <p className="text-sm text-gray-500 mb-3">
+                Events are stored in your browser. Reset to start fresh with seed data, or clear to remove everything.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    if (confirm("Reset all events to seed data? Your edits and scanned events will be lost.")) {
+                      localStorage.removeItem("wwdc-dash-events");
+                      setEvents(getEvents());
+                    }
+                  }}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  Reset to Seed Data
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("Clear ALL events? This cannot be undone.")) {
+                      saveEvents([]);
+                      setEvents([]);
+                    }
+                  }}
+                  className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100"
+                >
+                  Clear All Events
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </main>
