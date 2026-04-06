@@ -91,6 +91,7 @@ export default function AddEventModal({ onAdd, onClose }: AddEventModalProps) {
                 <option value="partiful">Partiful</option>
                 <option value="x">X / Twitter</option>
                 <option value="eventbrite">Eventbrite</option>
+                <option value="meetup">Meetup</option>
                 <option value="manual">Manual</option>
               </select>
             </div>

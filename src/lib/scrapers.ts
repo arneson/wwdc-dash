@@ -52,6 +52,14 @@ export function generateEventbriteSearchLinks(terms: string[]): SearchLink[] {
   }));
 }
 
+export function generateMeetupSearchLinks(terms: string[]): SearchLink[] {
+  return terms.map((term) => ({
+    source: "meetup",
+    term,
+    url: `https://www.meetup.com/find/?keywords=${encodeURIComponent(term)}&location=us--ca--San+Francisco&source=EVENTS`,
+  }));
+}
+
 export function generateAllSearchLinks(
   configs: { source: string; searchTerms: string[]; enabled: boolean }[]
 ): SearchLink[] {
@@ -70,6 +78,9 @@ export function generateAllSearchLinks(
         break;
       case "eventbrite":
         links.push(...generateEventbriteSearchLinks(config.searchTerms));
+        break;
+      case "meetup":
+        links.push(...generateMeetupSearchLinks(config.searchTerms));
         break;
     }
   }

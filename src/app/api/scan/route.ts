@@ -1,57 +1,41 @@
 import { NextResponse } from "next/server";
 import { searchLuma } from "@/lib/scrapers/luma";
 import { searchEventbrite } from "@/lib/scrapers/eventbrite";
-import { DEFAULT_SCAN_CONFIGS } from "@/lib/types";
-import { WWDCEvent } from "@/lib/types";
+import { searchX } from "@/lib/scrapers/x-serper";
+import { searchMeetup } from "@/lib/scrapers/meetup";
+import { DEFAULT_SCAN_CONFIGS, WWDCEvent } from "@/lib/types";
+import { scoreAndRankEvents } from "@/lib/scoring";
+
+type ScrapeResult = {
+  source: string;
+  term: string;
+  found: number;
+  error?: string;
+  events: WWDCEvent[];
+};
+
+const SCRAPERS: Record<string, (query: string) => Promise<WWDCEvent[]>> = {
+  luma: searchLuma,
+  eventbrite: searchEventbrite,
+  x: searchX,
+  meetup: searchMeetup,
+};
 
 export async function POST() {
-  const results: {
-    source: string;
-    term: string;
-    found: number;
-    error?: string;
-    events: WWDCEvent[];
-  }[] = [];
+  const results: ScrapeResult[] = [];
 
-  // Run Luma searches
-  const lumaConfig = DEFAULT_SCAN_CONFIGS.find((c) => c.source === "luma");
-  if (lumaConfig?.enabled) {
-    for (const term of lumaConfig.searchTerms) {
+  // Run all configured scrapers
+  for (const config of DEFAULT_SCAN_CONFIGS) {
+    const scraper = SCRAPERS[config.source];
+    if (!scraper || !config.enabled) continue;
+
+    for (const term of config.searchTerms) {
       try {
-        const events = await searchLuma(term);
-        results.push({
-          source: "luma",
-          term,
-          found: events.length,
-          events,
-        });
+        const events = await scraper(term);
+        results.push({ source: config.source, term, found: events.length, events });
       } catch (err) {
         results.push({
-          source: "luma",
-          term,
-          found: 0,
-          error: String(err),
-          events: [],
-        });
-      }
-    }
-  }
-
-  // Run Eventbrite searches
-  const ebConfig = DEFAULT_SCAN_CONFIGS.find((c) => c.source === "eventbrite");
-  if (ebConfig?.enabled) {
-    for (const term of ebConfig.searchTerms) {
-      try {
-        const events = await searchEventbrite(term);
-        results.push({
-          source: "eventbrite",
-          term,
-          found: events.length,
-          events,
-        });
-      } catch (err) {
-        results.push({
-          source: "eventbrite",
+          source: config.source,
           term,
           found: 0,
           error: String(err),
@@ -75,16 +59,19 @@ export async function POST() {
     }
   }
 
+  // Auto-score events based on user profile
+  const scoredEvents = scoreAndRankEvents(allEvents);
+
   const totalFound = results.reduce((s, r) => s + r.found, 0);
 
   return NextResponse.json({
     success: true,
     summary: {
       totalFound,
-      uniqueEvents: allEvents.length,
+      uniqueEvents: scoredEvents.length,
       searches: results.length,
     },
-    results: results.map(({ events, ...rest }) => rest),
-    events: allEvents,
+    results: results.map(({ events: _events, ...rest }) => rest),
+    events: scoredEvents,
   });
 }

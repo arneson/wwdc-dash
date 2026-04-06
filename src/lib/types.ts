@@ -1,4 +1,4 @@
-export type EventSource = "luma" | "partiful" | "eventbrite" | "x" | "manual";
+export type EventSource = "luma" | "partiful" | "eventbrite" | "x" | "meetup" | "manual";
 
 export type EventTag =
   | "wwdc"
@@ -74,11 +74,17 @@ export const SOURCE_CONFIG: Record<
     icon: "🎫",
     priority: 4,
   },
+  meetup: {
+    label: "Meetup",
+    color: "#ED1C40",
+    icon: "📍",
+    priority: 5,
+  },
   manual: {
     label: "Manual",
     color: "#6B7280",
     icon: "✏️",
-    priority: 5,
+    priority: 6,
   },
 };
 
@@ -106,6 +112,11 @@ export const DEFAULT_SCAN_CONFIGS: ScanConfig[] = [
   {
     source: "eventbrite",
     searchTerms: ["WWDC", "SF tech meetup", "developer conference"],
+    enabled: true,
+  },
+  {
+    source: "meetup",
+    searchTerms: ["WWDC", "iOS developer", "AI meetup"],
     enabled: true,
   },
 ];
