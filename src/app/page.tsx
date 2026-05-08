@@ -85,6 +85,7 @@ export default function Dashboard() {
   const [interestFilter, setInterestFilter] = useState<InterestLevel | "all">("all");
   const [tagFilter, setTagFilter] = useState<EventTag | "all">("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
+  const [foundFilter, setFoundFilter] = useState<"all" | "24h" | "7d">("all");
   const [showFilters, setShowFilters] = useState(false);
 
   // Timeline
@@ -259,6 +260,14 @@ export default function Dashboard() {
       result = result.filter((e) => e.date === dateFilter);
     }
 
+    if (foundFilter !== "all") {
+      const cutoff = Date.now() - (foundFilter === "24h" ? 24 : 24 * 7) * 60 * 60 * 1000;
+      result = result.filter((e) => {
+        const t = Date.parse(e.addedAt);
+        return Number.isFinite(t) && t >= cutoff;
+      });
+    }
+
     const interestOrder: Record<InterestLevel, number> = {
       "must-go": 0,
       interested: 1,
@@ -275,7 +284,7 @@ export default function Dashboard() {
     });
 
     return result;
-  }, [events, searchQuery, sourceFilter, interestFilter, tagFilter, dateFilter]);
+  }, [events, searchQuery, sourceFilter, interestFilter, tagFilter, dateFilter, foundFilter]);
 
   const scanLinks = useMemo(() => generateAllSearchLinks(configs), [configs]);
 
@@ -494,6 +503,18 @@ export default function Dashboard() {
                     {WWDC_DATES.map((d) => (
                       <option key={d} value={d}>{DAY_LABELS[d]}</option>
                     ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Found</label>
+                  <select
+                    value={foundFilter}
+                    onChange={(e) => setFoundFilter(e.target.value as "all" | "24h" | "7d")}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="all">Any time</option>
+                    <option value="24h">Last 24 hours</option>
+                    <option value="7d">Last 7 days</option>
                   </select>
                 </div>
               </div>
